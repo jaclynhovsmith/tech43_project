@@ -38,4 +38,5 @@ From: roadmap.md item #1
 - Confirmed: phone numbers and Social Security numbers don't need separators. A bare run of exactly 10 digits (`5551234567`) is flagged as a phone number and exactly 9 digits (`123456789`) as a Social Security number. This also flags 10-digit timestamps and IDs.
 - Assumed: a 9- or 10-digit run isn't flagged when it's glued to letters (`a1b2c35551234567ef`) or part of a decimal number (`3.1415926535`).
 - Assumed: card numbers are written as one block or in groups of 4 (Amex style 4-6-5 too), start with 2–6, and pass the checksum.
+- Tried in a Claude Code cloud session used from the Claude app: a message with a phone number was stopped, and the same message sent again right after went through. Still to confirm: whether the person resent it or the app resends stopped messages on its own (that would undo the protection).
 - Assumed: the plugin is called `pii-check`.
