@@ -448,8 +448,6 @@ importers:
         specifier: ^0.31.11
         version: 0.31.11
 
-  plugins/claude-code-pii-guard: {}
-
   scripts:
     devDependencies:
       '@types/node':
