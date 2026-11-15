@@ -12,7 +12,7 @@ Built in this order so we have something usable as early as possible.
 ## 2. Catch secrets — S
 **Why.** Adds passwords, API keys, access tokens and private keys to the same warning. These are the most costly things to leak. ("Held back… personal info or a secret".)
 **Depends on.** #1
-**Status.** ☐ not started
+**Status.** ◐ in progress — 1 check left: need your decision on Claude Code showing the original prompt
 
 ## 3. Catch names and street addresses — M
 **Why.** Adds the fuzzier personal info. When it's unsure, it warns anyway. ("When it's unsure, it warns anyway".)

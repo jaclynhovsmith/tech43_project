@@ -34,6 +34,15 @@ $reason"; return;; esac
     ok "$name"
 }
 
+expect_block_without() {  # expect_block_without <name> <prompt> <must contain> <must NOT contain>
+    local out reason; out="$(run "$2")"
+    reason="$(printf '%s' "$out" | jq -r 'select(.decision=="block") | .reason' 2>/dev/null)"
+    case "$reason" in *"$3"*) ;; *) bad "$1" "reason is missing \"$3\": ${reason:-<no block>}"; return;; esac
+    case "$reason" in *"$4"*) bad "$1" "reason should not contain \"$4\":
+$reason"; return;; esac
+    ok "$1"
+}
+
 expect_pass() {  # expect_pass <name> <prompt>
     local out; out="$(run "$2")"
     [ -z "$out" ] && ok "$1" || bad "$1" "expected no output, got: $out"
@@ -85,6 +94,68 @@ new_session; expect_block "pasted marker lines" $'fix this\n<pasted_content id="
 new_session; expect_pass  "pasted marker ids alone" $'<pasted_content id="4111111111111111">\nhello\n</pasted_content id="4111111111111111">'
 new_session; expect_block "unicode and escapes around" $'café — "quoted" \\ back\\slash\n\tmail me: a@b.io' "email: a@b.io"
 new_session; expect_block "listed once when repeated" "a@b.io and a@b.io" "email: a@b.io"
+
+echo "Secrets: private keys"
+new_session; expect_block "RSA private key" $'-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIBAAKCAQEA7\n-----END RSA PRIVATE KEY-----' "private key: BEGIN RSA PRIVATE KEY"
+new_session; expect_block "OpenSSH private key" $'-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjE' "private key: BEGIN OPENSSH PRIVATE KEY"
+new_session; expect_block "PKCS8 private key" "-----BEGIN PRIVATE KEY-----" "private key: BEGIN PRIVATE KEY"
+new_session; expect_pass  "public key" $'-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0B'
+new_session; expect_pass  "certificate" $'-----BEGIN CERTIFICATE-----\nMIIDdzCCAl+gAwIBAgIE'
+
+# Fake keys are assembled at runtime so no complete key-shaped string sits in this file.
+R36="a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8"
+echo "Secrets: known key formats"
+new_session; expect_block "AWS access key"     "key AKIA""Z7Q4M2X9P1L8K3J6 here" "AWS access key: AKIA…"
+new_session; expect_block "GitHub classic"     "gh""p_$R36" "GitHub token: ghp_…"
+new_session; expect_block "GitHub fine-grained" "github""_pat_11ABCDEFG0${R36}xyz" "GitHub token: github_pat_…"
+new_session; expect_block "GitLab"             "glp""at-${R36:0:20}" "GitLab token: glpat-…"
+new_session; expect_block "Slack"              "xo""xb-1234567890-0987654321-${R36:0:24}" "Slack token: xoxb-…"
+new_session; expect_block "Stripe live"        "sk_""live_${R36:0:24}" "Stripe key: sk_live_…"
+new_session; expect_block "Stripe test"        "sk_""test_${R36:0:24}" "Stripe key: sk_test_…"
+new_session; expect_block "Anthropic"          "sk-""ant-api03-${R36}${R36}" "Anthropic API key: sk-ant-…"
+new_session; expect_block "OpenAI"             "sk-""proj-${R36}${R36}" "OpenAI API key: sk-…"
+new_session; expect_block "Google"             "AI""za${R36:0:35}" "Google API key: AIza…"
+new_session; expect_block "npm"                "np""m_$R36" "npm token: npm_…"
+new_session; expect_block "SendGrid"           "S""G.${R36:0:22}.${R36}abcdefg" "SendGrid key: SG.…"
+new_session; expect_block "JWT"                "ey""JhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U" "access token (JWT): eyJ…"
+new_session; expect_pass  "hyphenated words after sk-" "use sk-learn-is-a-python-library-for-machine-learning"
+new_session; expect_pass  "risk- words"        "the risk-assessment-framework-for-cloud-deployments doc"
+new_session; expect_block_without "digits inside a token are not a phone" "gh""p_5551234567${R36:10}" "GitHub token" "phone"
+
+echo "Secrets: settings"
+new_session; expect_block_without "password=" "password=hunter22" "password: password=…" "hunter22"
+new_session; expect_block_without "quoted env value" 'DB_PASSWORD="correct horse battery"' "password: DB_PASSWORD=…" "horse"
+new_session; expect_block_without "JSON api_key" '{"api_key": "a8f3k2l9q0w7e6r5"}' "key: api_key=…" "a8f3k2"
+new_session; expect_block "--token flag"       "deploy --token a8f3k2l9q0w7e6r5 --prod" "token: --token=…"
+new_session; expect_block "Django SECRET_KEY"  "SECRET_KEY = 'django-insecure-abc123xyz789'" "key: SECRET_KEY=…"
+new_session; expect_block "AWS secret setting" "AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMIK7MDENGbPxRfiCYzq81" "key: AWS_SECRET_ACCESS_KEY=…"
+new_session; expect_block "camelCase secret"   'clientSecret: "Zx9!kq2Lm"' "secret: clientSecret=…"
+new_session; expect_block "token in a web address" "GET /cb?access_token=a8f3k2l9q0w7e6r5&page=2" "token: access_token=…"
+new_session; expect_block_without "password in a web address" "postgres://admin:s3cr3tpw@db.internal:5432/app" "password in a web address: postgres://admin:…@" "email"
+new_session; expect_block_without "Bearer header" "curl -H 'Authorization: Bearer abc123def456ghi789' https://api.x.io" "access token: Authorization: Bearer …" "abc123"
+new_session; expect_block "Basic header"       "Authorization: Basic dXNlcjpwYXNz" "access token: Authorization: Basic …"
+new_session; expect_block "password in prose"  "my password: hunter22, please log in" "password: password=…"
+
+echo "Secrets: code that is not a secret"
+new_session; expect_pass "os.environ"          'password = os.environ["DB_PASSWORD"]'
+new_session; expect_pass "type annotation"     "token: string"
+new_session; expect_pass "python signature"    "def login(username: str, password: str) -> bool:"
+new_session; expect_pass "comparison"          "if password == input:"
+new_session; expect_pass "dotted name"         "apiKey = config.apiKey"
+new_session; expect_pass "max_tokens"          "max_tokens=1000"
+new_session; expect_pass "placeholder"         'api_key="YOUR_API_KEY"'
+new_session; expect_pass "other variable"      "password = hashed_password"
+new_session; expect_pass "await call"          "const token = await getToken();"
+new_session; expect_pass "PWD path"            "PWD=/home/user/project"
+new_session; expect_pass "stars"               "password: ********"
+new_session; expect_pass "prose"               "I forgot my password, can you help me reset it?"
+new_session; expect_pass "tokenizer"           'tokenizer = AutoTokenizer.from_pretrained("bert-base")'
+new_session; expect_pass "shell substitution"  'export GITHUB_TOKEN=$(gh auth token)'
+new_session; expect_pass "template"            'password: "{{ vault_password }}"'
+new_session; expect_pass "generic type"        "self.next_token: Optional[Token]"
+new_session; expect_pass "indexing"            "firstToken = this.tokens[startPosition]"
+new_session; expect_pass "function keyword"    "proto.onToken = function (tok) {"
+new_session; expect_pass "secrets context"     'token: ${{ secrets.NPM_TOKEN }}'
 
 echo "Clean prompts"
 new_session; expect_pass "plain question" "now write a test for it"

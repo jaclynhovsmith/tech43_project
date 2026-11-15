@@ -83,8 +83,9 @@ function hexval(h,    v, i) {
 # ---------- detection ----------
 
 function check_line(line,    p) {
-    if (line !~ /[0-9@]/) return
+    if (line !~ /[0-9@:=-]/) return
     for (p in COVER) delete COVER[p]
+    check_secrets(line)
     scan(line, "email")
     scan(line, "card")
     scan(line, "ssn")
@@ -203,16 +204,198 @@ function luhn(d,    sum, i, n, alt) {
     return sum % 10 == 0
 }
 
-function record(kind, val, rs, rl,    i, label, shown, key) {
-    for (i = rs; i < rs + rl; i++) if (i in COVER) return
-    for (i = rs; i < rs + rl; i++) COVER[i] = 1
+function record(kind, val, rs, rl,    label, shown) {
     if (kind == "email") { label = "email"; shown = val }
     else if (kind == "card") { label = "card number"; shown = substr(val, 1, 4) " …" substr(val, length(val) - 3) }
     else if (kind == "ssn") { label = "Social Security number"; shown = "…-" substr(val, 8, 4) }
     else if (kind == "ssn_bare") { label = "Social Security number"; shown = "…" substr(val, 6, 4) }
     else { label = "phone number"; shown = val }
+    record_as(label, shown, rs, rl)
+}
+
+# Adds a finding unless its text overlaps one already found on this line.
+function record_as(label, shown, rs, rl,    i, key) {
+    for (i = rs; i < rs + rl; i++) if (i in COVER) return
+    for (i = rs; i < rs + rl; i++) COVER[i] = 1
     key = label "\t" shown
     if (key in SEEN) return
     SEEN[key] = 1
     FOUND[++NF_COUNT] = key
+}
+
+# ---------- secrets ----------
+# Run before the personal-info checks, so digits inside a secret aren't also
+# reported as a phone or card number. The warning never shows a whole secret.
+
+function check_secrets(line,    lc) {
+    lc = tolower(line)
+    if (index(line, "-----BEGIN ")) private_keys(line)
+    known_tokens(line)
+    if (index(lc, "://")) url_passwords(line, lc)
+    if (index(lc, "bearer") || index(lc, "authorization")) auth_headers(line, lc)
+    if (has_any(lc, "pass|pwd|secret|token|key")) settings(line, lc)
+}
+
+# Every non-overlapping match of re in s, into MS[] (start) and ML[] (length).
+function find_all(s, re,    n, off, rest) {
+    n = 0
+    off = 0
+    rest = s
+    while (match(rest, re)) {
+        n++
+        MS[n] = RSTART + off
+        ML[n] = RLENGTH
+        off = off + RSTART + RLENGTH - 1
+        if (RLENGTH == 0) off++
+        rest = substr(s, off + 1)
+    }
+    return n
+}
+
+function private_keys(line,    n, k, v) {
+    n = find_all(line, "-----BEGIN [A-Z0-9 ]*PRIVATE KEY( BLOCK)?-----")
+    for (k = 1; k <= n; k++) {
+        v = substr(line, MS[k] + 5, ML[k] - 10)
+        record_as("private key", v, MS[k], ML[k])
+    }
+}
+
+function token_formats() {
+    if (NTOK) return
+    # fixed text that must appear (| = either), regex, shortest, longest, label, characters to show
+    tok("AKIA|ASIA",   "(AKIA|ASIA)[A-Z0-9]+",                          20, 20,   "AWS access key", 4)
+    tok("gh",          "gh[pousr]_[A-Za-z0-9]+",                        40, 255,  "GitHub token", 4)
+    tok("github_pat_", "github_pat_[A-Za-z0-9_]+",                      40, 255,  "GitHub token", 11)
+    tok("glpat-",      "glpat-[A-Za-z0-9_-]+",                          26, 255,  "GitLab token", 6)
+    tok("xox",         "xox[abposr]-[A-Za-z0-9-]+",                     15, 255,  "Slack token", 5)
+    tok("k_live_|k_test_", "[sr]k_(live|test)_[A-Za-z0-9]+",            20, 255,  "Stripe key", 8)
+    tok("sk-ant-",     "sk-ant-[A-Za-z0-9_-]+",                         30, 255,  "Anthropic API key", 7)
+    tok("sk-",         "sk-[A-Za-z0-9_-]+",                             30, 255,  "OpenAI API key", 3)
+    tok("AIza",        "AIza[A-Za-z0-9_-]+",                            39, 39,   "Google API key", 4)
+    tok("npm_",        "npm_[A-Za-z0-9]+",                              40, 40,   "npm token", 4)
+    tok("SG.",         "SG[.][A-Za-z0-9_-]+[.][A-Za-z0-9_-]+",          50, 100,  "SendGrid key", 3)
+    tok("eyJ",         "eyJ[A-Za-z0-9_-]+[.]eyJ[A-Za-z0-9_-]+[.][A-Za-z0-9_-]+", 30, 100000, "access token (JWT)", 3)
+}
+
+function tok(hint, re, lo, hi, label, show) {
+    NTOK++
+    THINT[NTOK] = hint; TRE[NTOK] = re; TLO[NTOK] = lo; THI[NTOK] = hi; TLAB[NTOK] = label; TSHOW[NTOK] = show
+}
+
+function known_tokens(line,    t, n, k, v, rs, rl) {
+    token_formats()
+    for (t = 1; t <= NTOK; t++) {
+        if (!has_any(line, THINT[t])) continue
+        n = find_all(line, TRE[t])
+        for (k = 1; k <= n; k++) {
+            rs = MS[k]; rl = ML[k]
+            v = substr(line, rs, rl)
+            if (rl < TLO[t] || rl > THI[t]) continue
+            if (charat(line, rs - 1) ~ /[A-Za-z0-9]/ || substr(line, rs + rl, 1) ~ /[A-Za-z0-9]/) continue
+            # Real keys are random: they mix digits and letters. Skips "sk-some-long-slug-of-words".
+            if (v !~ /[0-9]/ || substr(v, TSHOW[t] + 1) !~ /[A-Za-z]/) continue
+            record_as(TLAB[t], substr(v, 1, TSHOW[t]) "…", rs, rl)
+        }
+    }
+}
+
+function has_any(s, hints,    n, H, i) {
+    n = split(hints, H, "|")
+    for (i = 1; i <= n; i++) if (index(s, H[i])) return 1
+    return 0
+}
+
+# https://user:password@host
+function url_passwords(line, lc,    n, k, v, c, at, pw) {
+    n = find_all(lc, "[a-z][a-z0-9+.-]*://[^/ :@]+:[^/ @]+@")
+    for (k = 1; k <= n; k++) {
+        v = substr(line, MS[k], ML[k])
+        c = index(substr(v, index(v, "://") + 3), ":") + index(v, "://") + 2
+        pw = substr(v, c + 1, length(v) - c - 1)
+        if (is_not_a_secret(pw, 1)) continue
+        record_as("password in a web address", substr(v, 1, c) "…@", MS[k], ML[k])
+    }
+}
+
+function auth_headers(line, lc,    n, k, v, sp) {
+    n = find_all(lc, "authorization[^a-z0-9]*(bearer|basic|token) +[a-z0-9._~+/=-]+")
+    for (k = 1; k <= n; k++) auth_value(line, MS[k], ML[k], 8)
+    n = find_all(lc, "bearer +[a-z0-9._~+/=-]+")
+    for (k = 1; k <= n; k++) auth_value(line, MS[k], ML[k], 16)
+}
+
+function auth_value(line, rs, rl, minlen,    v, value) {
+    v = substr(line, rs, rl)
+    value = v
+    sub(/^.* /, "", value)
+    if (length(value) < minlen || is_not_a_secret(value, 0)) return
+    if (minlen > 8 && value !~ /[0-9]/) return
+    record_as("access token", substr(v, 1, length(v) - length(value)) "…", rs, rl)
+}
+
+# Settings such as password=..., "api_key": "...", --token ..., SECRET_KEY: ...
+function settings(line, lc,    n, k, ks, ke, key, p, c, spaced, q, vs, ve, value, kind) {
+    n = find_all(lc, "[a-z0-9_.-]*(password|passwd|pwd|passphrase|secret|token|(api|access|private|secret|auth|signing|encryption)[_.-]?key)")
+    for (k = 1; k <= n; k++) {
+        ks = MS[k]; ke = ks + ML[k]
+        key = substr(line, ks, ML[k])
+        # The name must end here: "passwords", "max_tokens" and "tokenizer" don't count.
+        if (substr(lc, ke, 1) !~ /^([ \t:="'`]|)$/ || ke > length(lc)) continue
+        p = ke
+        if (substr(line, p, 1) ~ /["'`]/) p++
+        spaced = 0
+        while (substr(line, p, 1) ~ /[ \t]/) { p++; spaced = 1 }
+        c = substr(line, p, 1)
+        if (c == ":" && substr(line, p + 1, 1) == "=") p += 2
+        else if (c == ":" || c == "=") {
+            if (substr(line, p + 1, 1) == "=") continue      # == comparison
+            p++
+        } else if (!(spaced && key ~ /^-/)) continue         # --token VALUE
+        while (substr(line, p, 1) ~ /[ \t]/) p++
+        q = substr(line, p, 1)
+        if (q ~ /["'`]/) {
+            vs = p + 1
+            ve = index(substr(line, vs), q)
+            ve = ve ? vs + ve - 1 : length(line) + 1
+        } else {
+            vs = p
+            ve = vs
+            while (ve <= length(line) && substr(line, ve, 1) !~ /[ \t&,;"'`)}\]]/) ve++
+        }
+        value = substr(line, vs, ve - vs)
+        kind = key_kind(tolower(key))
+        if (is_not_a_secret(value, kind == "password")) continue
+        record_as(kind, key "=…", ks, ve - ks)
+    }
+}
+
+function key_kind(k) {
+    if (k ~ /(password|passwd|pwd|passphrase)$/) return "password"
+    if (k ~ /token$/) return "token"
+    if (k ~ /secret$/) return "secret"
+    return "key"
+}
+
+# Values that are code, variables, types or placeholders rather than a real secret.
+function is_not_a_secret(v, is_password,    lv) {
+    lv = tolower(v)
+    if (length(v) < (is_password ? 6 : 8)) return 1
+    if (v ~ /^[$%{<(\[@\/~*.]/) return 1
+    if (v ~ /[][{}()<>]/) return 1
+    if (lv ~ /^(function|lambda|async|await|new|this|self|return|yield|class|def|require|import|static|const|let|var)$/) return 1
+    if (lv ~ /^(string|str|int|integer|number|bool|boolean|any|text|varchar|char|bytes|none|null|nil|undefined|true|false|optional)$/) return 1
+    if (lv ~ /(your|example|placeholder|redacted|dummy|sample|fake|replace_?me|xxx|[*][*][*]|[.][.][.])/) return 1
+    if (lv ~ /(process[.]env|os[.]environ|getenv|secrets[.])/) return 1
+    if (same_char(v)) return 1
+    # A dotted name like config.apiKey or req.body.password.
+    if (lv ~ /^[a-z_$][a-z0-9_$]*([.][a-z_$][a-z0-9_$]*)+$/) return 1
+    # Another variable's name, like DB_PASSWORD or hashed_password.
+    if (lv ~ /^[a-z_]+$/ && lv ~ /(password|passwd|token|secret|key)/) return 1
+    return 0
+}
+
+function same_char(v,    i, c) {
+    c = substr(v, 1, 1)
+    for (i = 2; i <= length(v); i++) if (substr(v, i, 1) != c) return 0
+    return 1
 }

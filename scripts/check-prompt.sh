@@ -79,6 +79,6 @@ else
     NEXT="Edit it and send again. (Sending it anyway isn't available: no SHA-256 tool was found on this computer.)"
 fi
 
-block "Your prompt was NOT sent. It looks like it contains personal info:$LIST
+block "Your prompt was NOT sent. It looks like it contains personal info or secrets:$LIST
 
 $NEXT"
