@@ -1,0 +1,9 @@
+{
+  "name": "pii-guard",
+  "version": "0.1.0",
+  "description": "Warns before likely personal information is sent in a Claude Code prompt.",
+  "license": "MIT",
+  "author": {
+    "name": "PII Guard"
+  }
+}
