@@ -20,8 +20,10 @@ json_escape() {
     printf '%s' "$s"
 }
 
-block() {
-    printf '{"decision":"block","reason":"%s","hookSpecificOutput":{"hookEventName":"UserPromptSubmit"}}\n' "$(json_escape "$1")"
+block() {  # block <message> [hide]  -- "hide" leaves the prompt text out of Claude Code's message
+    local hide=""
+    [ "${2:-}" = "hide" ] && hide=',"suppressOriginalPrompt":true'
+    printf '{"decision":"block","reason":"%s","hookSpecificOutput":{"hookEventName":"UserPromptSubmit"%s}}\n' "$(json_escape "$1")" "$hide"
     exit 0
 }
 
@@ -79,6 +81,18 @@ else
     NEXT="Edit it and send again. (Sending it anyway isn't available: no SHA-256 tool was found on this computer.)"
 fi
 
+# Personal info: Claude Code shows the prompt under the warning so you can copy it.
+# A secret: hide the prompt so the secret isn't shown in full on screen.
+HIDE=""
+while IFS=$'\t' read -r KIND SHOWN; do
+    case "$KIND" in
+        email|"phone number"|"Social Security number"|"card number") ;;
+        *) HIDE=hide ;;
+    esac
+done <<< "$FINDINGS"
+[ -n "$HIDE" ] && NEXT="$NEXT
+Your prompt isn't shown here because it contains a secret."
+
 block "Your prompt was NOT sent. It looks like it contains personal info or secrets:$LIST
 
-$NEXT"
+$NEXT" "$HIDE"

@@ -12,7 +12,7 @@ Built in this order so we have something usable as early as possible.
 ## 2. Catch secrets — S
 **Why.** Adds passwords, API keys, access tokens and private keys to the same warning. These are the most costly things to leak. ("Held back… personal info or a secret".)
 **Depends on.** #1
-**Status.** ◐ in progress — 1 check left: need your decision on Claude Code showing the original prompt
+**Status.** ☑ done
 
 ## 3. Catch names and street addresses — M
 **Why.** Adds the fuzzier personal info. When it's unsure, it warns anyway. ("When it's unsure, it warns anyway".)
@@ -26,6 +26,6 @@ Built in this order so we have something usable as early as possible.
 
 ## 5. Publish it — S
 **Why.** Package it as a Claude Code plugin with a short README so a stranger can find it, install it and have it working in a couple of minutes. ("A stranger can find it, install it…")
-Also, moved from #1: try a real paste in the interactive app and confirm it's checked; the README explains how to turn the plugin off (Claude Code's own message doesn't, if the check can't start).
+Also, moved from #1: the README explains how to turn the plugin off (Claude Code's own message doesn't, if the check can't start). (The real-paste check from #1 was done during #2.)
 **Depends on.** #1–#4
 **Status.** ☐ not started

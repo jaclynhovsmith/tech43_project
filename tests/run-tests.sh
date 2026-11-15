@@ -136,6 +136,13 @@ new_session; expect_block_without "Bearer header" "curl -H 'Authorization: Beare
 new_session; expect_block "Basic header"       "Authorization: Basic dXNlcjpwYXNz" "access token: Authorization: Basic …"
 new_session; expect_block "password in prose"  "my password: hunter22, please log in" "password: password=…"
 
+echo "Secrets: hiding the original prompt"
+hidden() { run "$1" | jq -r '.hookSpecificOutput.suppressOriginalPrompt // false'; }
+new_session; [ "$(hidden "password=hunter22")" = true ] && ok "prompt hidden when a secret is found" || bad "prompt hidden when a secret is found" "suppressOriginalPrompt not set"
+new_session; [ "$(hidden "password=hunter22 and a@b.io")" = true ] && ok "hidden when secret and personal info are mixed" || bad "hidden when mixed" "suppressOriginalPrompt not set"
+new_session; [ "$(hidden "mail a@b.io")" = false ] && ok "prompt still shown for personal info only" || bad "prompt shown for personal info only" "suppressOriginalPrompt was set"
+new_session; expect_block "warning explains the hidden prompt" "password=hunter22" "isn't shown here because it contains a secret"
+
 echo "Secrets: code that is not a secret"
 new_session; expect_pass "os.environ"          'password = os.environ["DB_PASSWORD"]'
 new_session; expect_pass "type annotation"     "token: string"
