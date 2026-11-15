@@ -18,7 +18,7 @@
 **Ground rules.**
 - The check itself never sends your text anywhere. It runs only on your own computer.
 - You always stay in control. It warns and asks, and never changes what you wrote.
-- Nothing it finds is saved to disk or logged.
+- The plugin never saves what it finds. (Claude Code itself keeps your prompt history on your computer, including stopped prompts.)
 - It works out of the box, with no account, no sign-up and no paid service.
 
 **Out of scope.**

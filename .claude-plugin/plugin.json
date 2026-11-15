@@ -1,0 +1,5 @@
+{
+  "name": "pii-check",
+  "version": "0.1.0",
+  "description": "Asks before you send a prompt that contains personal info (emails, phone numbers, Social Security numbers, card numbers). Runs entirely on your computer."
+}
